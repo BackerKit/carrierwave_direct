@@ -22,9 +22,6 @@ describe CarrierWaveDirect::Uploader do
     end
   end
 
-  it_should_have_accessor(:success_action_redirect)
-  it_should_have_accessor(:success_action_status)
-
   describe "#key=" do
     before { subject.key = sample(:key) }
 
@@ -47,8 +44,8 @@ describe CarrierWaveDirect::Uploader do
         mounted_subject.key = nil
       end
 
-      it "should return '*/\#\{guid\}/${filename}'" do
-        expect(mounted_subject.key).to match /#{GUID_REGEXP}\/\$\{filename\}$/
+      it "should return '*/guid/guid'" do
+        expect(mounted_subject.key).to match /#{GUID_REGEXP}\/#{GUID_REGEXP}$/
       end
 
       context "and #store_dir returns '#{sample(:store_dir)}'" do
@@ -56,16 +53,16 @@ describe CarrierWaveDirect::Uploader do
           allow(mounted_subject).to receive(:store_dir).and_return(sample(:store_dir))
         end
 
-        it "should return '#{sample(:store_dir)}/\#\{guid\}/${filename}'" do
-          expect(mounted_subject.key).to match /^#{sample(:store_dir)}\/#{GUID_REGEXP}\/\$\{filename\}$/
+        it "should return '#{sample(:store_dir)}/guid/guid'" do
+          expect(mounted_subject.key).to match /^#{sample(:store_dir)}\/#{GUID_REGEXP}\/#{GUID_REGEXP}$/
         end
       end
 
       context "and the uploaders url is #default_url" do
-        it "should return '*/\#\{guid\}/${filename}'" do
+        it "should return '*/guid/guid'" do
           allow(mounted_subject).to receive(:url).and_return(sample(:s3_file_url))
           allow(mounted_subject).to receive(:present?).and_return(false)
-          expect(mounted_subject.key).to match /#{GUID_REGEXP}\/\$\{filename\}$/
+          expect(mounted_subject.key).to match /#{GUID_REGEXP}\/#{GUID_REGEXP}$/
         end
       end
 
@@ -105,9 +102,36 @@ describe CarrierWaveDirect::Uploader do
 
   describe "#direct_fog_url" do
     it "should return the result from CarrierWave::Storage::Fog::File#public_url" do
-      expect(subject.direct_fog_url).to eq CarrierWave::Storage::Fog::File.new(
-        subject, nil, nil
-      ).public_url
+      expected_url = "https://AWS_FOG_DIRECTORY.s3.amazonaws.com/"
+      allow_any_instance_of(CarrierWave::Storage::Fog::File).to receive(:public_url).and_return(expected_url)
+      expect(subject.direct_fog_url).to eq expected_url
+    end
+  end
+
+  describe "#presigned_put_url" do
+    it "should return a presigned S3 PUT URL string" do
+      fake_connection = double("FogConnection")
+      allow(fake_connection).to receive(:put_object_url).and_return(
+        "https://AWS_FOG_DIRECTORY.s3.amazonaws.com/path/to/key?X-Amz-Signature=abc"
+      )
+      allow(Fog::Storage).to receive(:new).and_return(fake_connection)
+      url = subject.presigned_put_url
+      expect(url).to be_a(String)
+      expect(url).to start_with("https://")
+    end
+
+    it "should use the upload_expiration for the URL expiry" do
+      received_expires = nil
+      fake_connection = double("FogConnection")
+      allow(fake_connection).to receive(:put_object_url) do |_bucket, _key, expires, _headers|
+        received_expires = expires
+        "https://example.com/presigned"
+      end
+      allow(Fog::Storage).to receive(:new).and_return(fake_connection)
+      Timecop.freeze(Time.now) do
+        subject.presigned_put_url
+        expect(received_expires).to be_within(1.second).of(Time.now.utc + DirectUploader.upload_expiration)
+      end
     end
   end
 
@@ -122,14 +146,8 @@ describe CarrierWaveDirect::Uploader do
         allow(subject).to receive(:cache_dir).and_return(sample(:cache_dir))
       end
 
-      context "and #extension_regexp returns '#{sample(:extension_regexp)}'" do
-        before do
-          allow(subject).to receive(:extension_regexp).and_return(sample(:extension_regexp))
-        end
-
-        it "should return /\\A(#{sample(:store_dir)}|#{sample(:cache_dir)})\\/#{GUID_REGEXP}\\/.+\\.#{sample(:extension_regexp)}\\z/" do
-          expect(subject.key_regexp).to eq /\A(#{sample(:store_dir)}|#{sample(:cache_dir)})\/#{GUID_REGEXP}\/.+\.(?i)#{sample(:extension_regexp)}(?-i)\z/
-        end
+      it "should match keys of the form store_dir/guid/guid" do
+        expect(subject.key_regexp).to eq /\A(#{sample(:store_dir)}|#{sample(:cache_dir)})\/#{GUID_REGEXP}\/#{GUID_REGEXP}\z/
       end
     end
   end
@@ -278,206 +296,6 @@ describe CarrierWaveDirect::Uploader do
   describe "#acl" do
     it "should return the correct s3 access policy" do
       expect(subject.acl).to eq (subject.fog_public ? 'public-read' : 'private')
-    end
-  end
-
-  # http://aws.amazon.com/articles/1434?_encoding=UTF8
-  #http://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-UsingHTTPPOST.html
-  describe "#policy" do
-
-
-    def decoded_policy(options = {}, &block)
-      instance = options.delete(:subject) || subject
-      JSON.parse(Base64.decode64(instance.policy(options, &block)))
-    end
-
-    context "policy is given a block" do
-      it "should yield the options to the block" do
-        number = 0
-        subject.policy do |conditions|
-          number+=1
-        end
-        expect(number).to eq 1
-      end
-      it "should include new options in the conditions" do
-        policy = subject.policy do |conditions|
-          conditions << {"x-aws-storage-class" => "STANDARD"}
-        end
-        decoded = JSON.parse(Base64.decode64(policy))
-        expect(decoded['conditions'].last['x-aws-storage-class']).to eq "STANDARD"
-      end
-    end
-
-    it "should return Base64-encoded JSON" do
-      expect(decoded_policy).to be_a(Hash)
-    end
-
-    it "should not contain any new lines" do
-      expect(subject.policy).to_not include("\n")
-    end
-
-    it "should be cached" do
-      Timecop.freeze(Time.now) do
-        @policy_now = subject.policy
-      end
-      Timecop.freeze(1.second.from_now) do
-        @policy_later = subject.policy
-      end
-      expect(@policy_later).to eql @policy_now
-    end
-
-    context "expiration" do
-      def expiration(options = {})
-        decoded_policy(options)["expiration"]
-      end
-
-      # JSON times have no seconds, so accept upto one second inaccuracy
-      def have_expiration(expires_in = DirectUploader.upload_expiration)
-        be_within(1.second).of (Time.now + expires_in)
-      end
-
-      it "should be valid ISO8601 and not use default Time#to_json" do
-        Time.any_instance.stub(:to_json) { '"Invalid time"' } # JSON gem
-        Time.any_instance.stub(:as_json) { '"Invalid time"' } # Active Support
-        expect { Time.iso8601(expiration) }.to_not raise_error
-      end
-
-      it "should be #{DirectUploader.upload_expiration / 3600} hours from now" do
-        Timecop.freeze(Time.now) do
-          expect(Time.parse(expiration)).to have_expiration
-        end
-      end
-
-      it "should be encoded as a utc time" do
-        expect(Time.parse(expiration)).to be_utc
-      end
-
-      it "should be #{sample(:expiration) / 60 } minutes from now when passing {:expiration => #{sample(:expiration)}}" do
-        Timecop.freeze(Time.now) do
-          expect(Time.parse(expiration(:expiration => sample(:expiration)))).to have_expiration(sample(:expiration))
-        end
-      end
-    end
-
-    context "conditions" do
-      def conditions(options = {})
-        decoded_policy(options)["conditions"]
-      end
-
-      def have_condition(field, value = nil)
-        field.is_a?(Hash) ? include(field) : include(["starts-with", "$#{field}", value.to_s])
-      end
-
-      context "should include" do
-        it "'utf8' if enforce_ut8 is set" do
-          expect(conditions(enforce_utf8: true)).to have_condition(:utf8)
-        end
-
-        it "'utf8' if enforce_ut8 is set" do
-          expect(conditions).to_not have_condition(:utf8)
-        end
-
-        # S3 conditions
-        it "'key'" do
-          allow(mounted_subject).to receive(:key).and_return(sample(:s3_key))
-          expect(conditions(
-            :subject => mounted_subject
-          )).to have_condition(:key, sample(:s3_key))
-        end
-
-        it "'key' without FILENAME_WILDCARD" do
-          expect(conditions(
-            :subject => mounted_subject
-          )).to have_condition(:key, mounted_subject.key.sub("${filename}", ""))
-        end
-
-        it "'bucket'" do
-          expect(conditions).to have_condition("bucket" => subject.fog_directory)
-        end
-
-        it "'acl'" do
-          expect(conditions).to have_condition("acl" => subject.acl)
-        end
-
-        it "'success_action_redirect'" do
-          subject.success_action_redirect = "http://example.com/some_url"
-          expect(conditions).to have_condition("success_action_redirect" => "http://example.com/some_url")
-        end
-
-        it "does not have 'content-type' when will_include_content_type is false" do
-          allow(subject.class).to receive(:will_include_content_type).and_return(false)
-          expect(conditions).to_not have_condition('Content-Type')
-        end
-
-        it "has 'content-type' when will_include_content_type is true" do
-          allow(subject.class).to receive(:will_include_content_type).and_return(true)
-          expect(conditions).to have_condition('Content-Type')
-        end
-
-        context 'when use_action_status is true' do
-          before(:all) do
-            DirectUploader.use_action_status = true
-          end
-
-          after(:all) do
-            DirectUploader.use_action_status = false
-          end
-
-          it "'success_action_status'" do
-            subject.success_action_status = '200'
-            expect(conditions).to have_condition("success_action_status" => "200")
-          end
-
-          it "does not have 'success_action_redirect'" do
-            subject.success_action_redirect = "http://example.com/some_url"
-            expect(conditions).to_not have_condition("success_action_redirect" => "http://example.com/some_url")
-          end
-        end
-
-        context "'content-length-range of'" do
-          def have_content_length_range(options = {})
-            include([
-              "content-length-range",
-              options[:min_file_size] || DirectUploader.min_file_size,
-              options[:max_file_size] || DirectUploader.max_file_size,
-            ])
-          end
-
-          it "#{DirectUploader.min_file_size} bytes" do
-            expect(conditions).to have_content_length_range
-          end
-
-          it "#{DirectUploader.max_file_size} bytes" do
-            expect(conditions).to have_content_length_range
-          end
-
-          it "#{sample(:min_file_size)} bytes when passing {:min_file_size => #{sample(:min_file_size)}}" do
-            expect(conditions(
-              :min_file_size => sample(:min_file_size)
-            )).to have_content_length_range(:min_file_size => sample(:min_file_size))
-          end
-
-          it "#{sample(:max_file_size)} bytes when passing {:max_file_size => #{sample(:max_file_size)}}" do
-            expect(conditions(
-              :max_file_size => sample(:max_file_size)
-            )).to have_content_length_range(:max_file_size => sample(:max_file_size))
-          end
-        end
-      end
-    end
-  end
-
-  describe "clear_policy!" do
-    it "should reset the cached policy string" do
-      Timecop.freeze(Time.now) do
-        @policy_now = subject.policy
-      end
-      subject.clear_policy!
-
-      Timecop.freeze(1.second.from_now) do
-        @policy_after_reset = subject.policy
-      end
-      expect(@policy_after_reset).not_to eql @policy_now
     end
   end
 

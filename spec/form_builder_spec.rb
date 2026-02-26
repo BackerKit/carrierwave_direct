@@ -9,136 +9,65 @@ class CarrierWaveDirect::FormBuilder
   public :content_choices_options
 end
 
-shared_examples_for 'hidden values form' do
-  hidden_fields = [
-                    :key,
-                    {:credential => "X-Amz-Credential"},
-                    {:algorithm => "X-Amz-Algorithm"},
-                    {:date => "X-Amz-Date"},
-                    {:signature => "X-Amz-Signature"},
-                    :acl,
-                    :success_action_redirect,
-                    :policy
-                  ]
-
-  hidden_fields.each do |input|
-    if input.is_a?(Hash)
-      key = input.keys.first
-      name = input[key]
-    else
-      key = name = input
-    end
-
-    it "should have a hidden field for '#{name}'" do
-      allow(direct_uploader.send(:signing_policy)).to receive(key).and_return(key.to_s)
-      allow(direct_uploader).to receive(key).and_return(key.to_s)
-      expect(subject).to have_input(
-        :direct_uploader,
-        key,
-        :type => :hidden,
-        :name => name,
-        :value => direct_uploader.send(key),
-        :required => false
-      )
-    end
-  end
-end
-
 describe CarrierWaveDirect::FormBuilder do
   include FormBuilderHelpers
 
   describe "#file_field" do
-
     def form_with_default_file_field
       form {|f| f.file_field :video }
     end
 
-    def form_with_file_field_and_no_redirect
-      allow(@direct_uploader.class).to receive(:use_action_status).and_return(true)
-
-      form do |f|
-        f.file_field :video
-      end
-    end
-
-    default_hidden_fields = [
-                      :key,
-                      {:credential => "X-Amz-Credential"},
-                      {:algorithm => "X-Amz-Algorithm"},
-                      {:date => "X-Amz-Date"},
-                      {:signature => "X-Amz-Signature"},
-                      :acl,
-                      :success_action_redirect,
-                      :policy,
-                    ]
-    status_hidden_fields = [
-                      :key,
-                      {:credential => "X-Amz-Credential"},
-                      {:algorithm => "X-Amz-Algorithm"},
-                      {:date => "X-Amz-Date"},
-                      {:signature => "X-Amz-Signature"},
-                      :acl,
-                      :success_action_status,
-                      :policy,
-                    ]
-
-    # http://aws.amazon.com/articles/1434?_encoding=UTF8
     context "form" do
       subject { form_with_default_file_field }
-      it_should_behave_like 'hidden values form'
 
-      default_hidden_fields.each do |input|
-        if input.is_a?(Hash)
-          key = input.keys.first
-          name = input[key]
-        else
-          key = name = input
-        end
-
-        it "should have a hidden field for '#{name}'" do
-          allow(direct_uploader.send(:signing_policy)).to receive(key).and_return(key.to_s)
-          allow(direct_uploader).to receive(key).and_return(key.to_s)
-          expect(subject).to have_input(
-            :direct_uploader,
-            key,
-            :type => :hidden,
-            :name => name,
-            :value => direct_uploader.send(key),
-            :required => false
-          )
-        end
-      end
-
-      status_hidden_fields.each do |input|
-        if input.is_a?(Hash)
-          key = input.keys.first
-          name = input[key]
-        else
-          key = name = input
-        end
-
-        it "should have a hidden field for '#{name}'" do
-          allow(direct_uploader.send(:signing_policy)).to receive(key).and_return(key.to_s)
-          allow(direct_uploader).to receive(key).and_return(key.to_s)
-          expect(form_with_file_field_and_no_redirect).to have_input(
-            :direct_uploader,
-            key,
-            :type => :hidden,
-            :name => name,
-            :value => direct_uploader.send(key),
-            :required => false
-          )
-        end
+      it "should have a hidden field for 'key'" do
+        allow(direct_uploader).to receive(:key).and_return("some/key/value")
+        expect(subject).to have_input(
+          :direct_uploader,
+          :key,
+          :type     => :hidden,
+          :name     => "key",
+          :value    => "some/key/value",
+          :required => false
+        )
       end
 
       it "should have an input for a file to upload" do
         expect(subject).to have_input(
           :direct_uploader,
           :video,
-          :type => :file,
-          :name => :file,
+          :type     => :file,
+          :name     => :file,
           :required => false
         )
+      end
+
+      it "should NOT have policy hidden fields (no acl, policy, signature, etc.)" do
+        %w[acl policy signature credential algorithm].each do |field|
+          expect(subject).not_to have_input(:direct_uploader, field.to_sym, :type => :hidden)
+        end
+      end
+    end
+  end
+
+  describe "#fields_except_file_field" do
+    it "should render the hidden key field" do
+      allow(direct_uploader).to receive(:key).and_return("some/key/value")
+      form_dom = form {|f| f.fields_except_file_field }
+      expect(form_dom).to have_input(
+        :direct_uploader,
+        :key,
+        :type     => :hidden,
+        :name     => "key",
+        :value    => "some/key/value",
+        :required => false
+      )
+    end
+
+    it "should not render extra policy fields" do
+      dom = form {|f| f.fields_except_file_field }
+      %w[acl policy signature credential algorithm].each do |field|
+        expect(dom).not_to have_input(:direct_uploader, field.to_sym, :type => :hidden)
       end
     end
   end
@@ -172,7 +101,17 @@ describe CarrierWaveDirect::FormBuilder do
       end
 
       it 'should include most content types' do
-        %w(application/atom+xml application/ecmascript application/json application/javascript application/octet-stream application/ogg application/pdf application/postscript application/rss+xml application/font-woff application/xhtml+xml application/xml application/xml-dtd application/zip application/gzip audio/basic audio/mp4 audio/mpeg audio/ogg audio/vorbis audio/vnd.rn-realaudio audio/vnd.wave audio/webm image/gif image/jpeg image/pjpeg image/png image/svg+xml image/tiff text/cmd text/css text/csv text/html text/javascript text/plain text/vcard text/xml video/mpeg video/mp4 video/ogg video/quicktime video/webm video/x-matroska video/x-ms-wmv video/x-flv).each do |type|
+        %w(application/atom+xml application/ecmascript application/json
+           application/javascript application/octet-stream application/ogg
+           application/pdf application/postscript application/rss+xml
+           application/font-woff application/xhtml+xml application/xml
+           application/xml-dtd application/zip application/gzip audio/basic
+           audio/mp4 audio/mpeg audio/ogg audio/vorbis audio/vnd.rn-realaudio
+           audio/vnd.wave audio/webm image/gif image/jpeg image/pjpeg
+           image/png image/svg+xml image/tiff text/cmd text/css text/csv
+           text/html text/javascript text/plain text/vcard text/xml video/mpeg
+           video/mp4 video/ogg video/quicktime video/webm video/x-matroska
+           video/x-ms-wmv video/x-flv).each do |type|
           expect(subject).to have_content_type type
         end
       end
@@ -182,52 +121,21 @@ describe CarrierWaveDirect::FormBuilder do
   describe "#content_type_label" do
     context "form" do
       subject do
-        form do |f|
-          f.content_type_label
-        end
+        form {|f| f.content_type_label }
       end
 
+      it 'should render a label for content_type' do
+        expect(subject).to include('Content-Type')
+      end
     end
   end
 
   describe 'full form' do
-    let(:dom) do
-      form do |f|
-        f.content_type_label <<
-        f.content_type_select <<
-        f.file_field(:video)
-      end
-    end
-
-    before do
-      allow(direct_uploader).to receive('key').and_return('foo')
-      allow(direct_uploader.class).to receive(:will_include_content_type).and_return(true)
-    end
-
-    it 'should only include the hidden values once' do
-      expect(dom).to have_input(
-                   :direct_uploader,
-                   'key',
-                   :type => :hidden,
-                   :name => 'key',
-                   :value => 'foo',
-                   :required => false,
-                   :count => 1
-                 )
-    end
-
-    it 'should include Content-Type twice' do
-      expect(dom).to have_input(
-                   :direct_uploader,
-                   :content_type,
-                   :type => :hidden,
-                   :name => 'Content-Type',
-                   :value => 'binary/octet-stream',
-                   :required => false,
-                   :count => 1
-                 )
-
-      expect(dom).to have_selector :xpath, './/select[@name="Content-Type"]', :count => 1
+    it 'should only have the key hidden field once (no duplicate or policy fields)' do
+      allow(direct_uploader).to receive(:key).and_return("some/key/value")
+      full = form {|f| f.file_field :video }
+      key_inputs = Nokogiri::HTML(full).css('input[name="key"]')
+      expect(key_inputs.count).to eq 1
     end
   end
 end

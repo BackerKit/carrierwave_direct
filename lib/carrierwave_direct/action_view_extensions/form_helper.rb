@@ -17,18 +17,25 @@ module CarrierWaveDirect
       def direct_upload_form_for(record, *args, &block)
         options = args.extract_options!
 
+        # Default the form action to '#' when no URL is supplied.
+        # The actual S3 upload is performed by JavaScript using the
+        # presigned PUT URL from data-presigned-url; the form then
+        # submits the resulting key back to the Rails app.
+        options[:url] ||= '#'
+
         html_options = {
-          :multipart => true
-        }.update(options[:html] || {})
+          data: {
+            presigned_url: record.presigned_put_url,
+            upload_key:    record.key
+          }
+        }.deep_merge(options.delete(:html) || {})
 
         form_for(
           record,
           *(args << options.merge(
-            :builder => CarrierWaveDirect::FormBuilder,
-            :url => record.direct_fog_url,
-            :html => html_options,
-            :authenticity_token => false,
-            :include_id => false
+            builder:    CarrierWaveDirect::FormBuilder,
+            html:       html_options,
+            include_id: false
           )),
           &block
         )
@@ -38,4 +45,3 @@ module CarrierWaveDirect
 end
 
 ActionView::Base.send :include, CarrierWaveDirect::ActionViewExtensions::FormHelper
-

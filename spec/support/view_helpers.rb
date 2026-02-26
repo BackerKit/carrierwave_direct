@@ -10,7 +10,7 @@ module ViewHelpers
   end
 
   def have_parent_selector(options = {})
-    have_selector(:xpath, parent_selector_xpath, options.merge(visible: false))
+    have_selector(:xpath, parent_selector_xpath, visible: :all, **options)
   end
 
   def parent_selector_xpath
@@ -54,4 +54,3 @@ module ViewHelpers
     have_selector :xpath, ".//select[@name=\"Content-Type\"]/option[#{to_xpath_attributes(options)}]"
   end
 end
-

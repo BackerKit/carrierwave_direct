@@ -259,7 +259,7 @@ describe CarrierWaveDirect::ActiveRecord do
 
         context "but uploaded file's extension is not included in the list" do
           before do
-            subject.video_key = sample_key(:extension => "mp3")
+            subject.video_key = sample_key(:valid => false)
           end
 
           it_should_behave_like "an invalid filename"

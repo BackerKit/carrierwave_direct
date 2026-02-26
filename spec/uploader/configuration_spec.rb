@@ -39,8 +39,5 @@ describe CarrierWaveDirect::Uploader::Configuration do
       expect(subject.max_file_size).to eq 5242880
     end
 
-    it "returns false for use_action_status" do
-      expect(subject.use_action_status).to be false
-    end
   end
 end

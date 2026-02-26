@@ -2,6 +2,7 @@
 
 require "carrierwave"
 require "fog/aws"
+require "fog/core"
 
 module CarrierWaveDirect
 
@@ -40,4 +41,3 @@ end
 require "carrierwave_direct/mount"
 require "carrierwave_direct/uploader"
 require "carrierwave_direct/version"
-

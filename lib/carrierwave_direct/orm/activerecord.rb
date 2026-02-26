@@ -29,6 +29,20 @@ module CarrierWaveDirect
       validates_filename_format_of(column, on: :create) if uploader_option(column.to_sym, :validate_filename_format)
       validates_remote_net_url_format_of(column, on: :create) if uploader_option(column.to_sym, :validate_remote_net_url_format)
 
+      # When a presigned-PUT key is explicitly set, persist the
+      # derived filename to the mount column on save so that
+      # CarrierWave can reconstruct the uploader from the DB and
+      # the uniqueness validator can find duplicates.
+      class_eval <<-RUBY, __FILE__, __LINE__+1
+        before_save :write_#{column}_key_identifier
+
+        def write_#{column}_key_identifier
+          return unless has_#{column}_upload?
+          derived = send(:#{column}).filename
+          write_attribute(:#{column}, derived) if derived.present?
+        end
+      RUBY
+
       self.instance_eval <<-RUBY, __FILE__, __LINE__+1
         attr_accessor   :skip_is_attached_validations
         unless defined?(ActiveModel::ForbiddenAttributesProtection) && ancestors.include?(ActiveModel::ForbiddenAttributesProtection)
@@ -60,4 +74,3 @@ module CarrierWaveDirect
 end
 
 ActiveRecord::Base.extend CarrierWaveDirect::ActiveRecord
-

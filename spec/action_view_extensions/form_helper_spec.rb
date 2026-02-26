@@ -14,21 +14,24 @@ describe CarrierWaveDirect::ActionViewExtensions::FormHelper do
 
     context "the form" do
       before do
-        allow(direct_uploader).to receive(:direct_fog_url).and_return("http://example.com")
+        allow(direct_uploader).to receive(:presigned_put_url).and_return("https://bucket.s3.amazonaws.com/key?X-Amz-Signature=abc")
       end
 
-      it "should post to the uploader's #direct_fog_url as a multipart form" do
-        expect(form).to submit_to(
-          :action => "http://example.com", :method => "post", :enctype => "multipart/form-data"
-        )
+      it "should have a data-presigned-url attribute on the form" do
+        html = form
+        expect(html).to include('data-presigned-url="https://bucket.s3.amazonaws.com/key?X-Amz-Signature=abc"')
       end
 
-      it "should include any html options passed as through :html" do
-        expect(form(:html => { :target => "_blank_iframe" })).to submit_to(
-          :action => "http://example.com", :method => "post", :enctype => "multipart/form-data", :target => "_blank_iframe"
-        )
+      it "should have a data-upload-key attribute on the form" do
+        allow(direct_uploader).to receive(:key).and_return("uploads/uuid1/uuid2")
+        html = form
+        expect(html).to include('data-upload-key="uploads/uuid1/uuid2"')
+      end
+
+      it "should include any html options passed through :html" do
+        html = form(:html => { :target => "_blank_iframe" })
+        expect(html).to include('target="_blank_iframe"')
       end
     end
   end
 end
-
